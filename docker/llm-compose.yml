@@ -1,0 +1,127 @@
+name: loopers-llm
+
+services:
+  gateway:
+    build:
+      context: ..
+      dockerfile: apps/llm-gateway/Dockerfile
+    env_file: ${LLM_ENV_FILE:-../.env}
+    environment:
+      LLM_PRIMARY_URL: ${LLM_DOCKER_PRIMARY_URL:-http://host.docker.internal:8001}
+      LLM_FALLBACK_URL: ${LLM_DOCKER_FALLBACK_URL:-}
+      LLM_LEDGER_PATH: /data/llm-billing.sqlite3
+    ports: ["127.0.0.1:8000:8000"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    volumes: ["billing-data:/data"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+  vllm-primary:
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.11.2}
+    profiles: ["gpu"]
+    ports: ["127.0.0.1:8001:8000"]
+    ipc: host
+    environment:
+      VLLM_API_KEY: ${LLM_PRIMARY_API_KEY:-local-vllm-primary}
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+      - ${VLLM_MODEL_DIR:-../models}:/models:ro
+    command:
+      - --model
+      - ${VLLM_MODEL_ID:-Qwen/Qwen2.5-0.5B-Instruct}
+      - --served-model-name
+      - ${LLM_PRIMARY_MODEL:-local-model}
+      - --generation-config
+      - vllm
+      - --max-model-len
+      - ${LLM_CONTEXT_LIMIT:-4096}
+      - --gpu-memory-utilization
+      - ${VLLM_GPU_MEMORY_UTILIZATION:-0.85}
+      - --kv-cache-dtype
+      - ${VLLM_KV_CACHE_DTYPE:-auto}
+      - --enable-prefix-caching
+      - --enable-chunked-prefill
+      - --block-size
+      - ${VLLM_BLOCK_SIZE:-16}
+      - --max-num-seqs
+      - ${VLLM_MAX_NUM_SEQS:-8}
+      - --max-num-batched-tokens
+      - ${VLLM_MAX_NUM_BATCHED_TOKENS:-4096}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${VLLM_PRIMARY_GPU_ID:-0}"]
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  vllm-fallback:
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.11.2}
+    profiles: ["gpu-fallback"]
+    ports: ["127.0.0.1:8002:8000"]
+    ipc: host
+    environment:
+      VLLM_API_KEY: ${LLM_FALLBACK_API_KEY:-local-vllm-fallback}
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+      - ${VLLM_MODEL_DIR:-../models}:/models:ro
+    command:
+      - --model
+      - ${VLLM_FALLBACK_MODEL_ID:-Qwen/Qwen2.5-0.5B-Instruct}
+      - --served-model-name
+      - ${LLM_FALLBACK_MODEL:-local-model}
+      - --generation-config
+      - vllm
+      - --max-model-len
+      - ${LLM_CONTEXT_LIMIT:-4096}
+      - --gpu-memory-utilization
+      - ${VLLM_FALLBACK_GPU_MEMORY_UTILIZATION:-0.85}
+      - --kv-cache-dtype
+      - ${VLLM_KV_CACHE_DTYPE:-auto}
+      - --enable-prefix-caching
+      - --enable-chunked-prefill
+      - --block-size
+      - ${VLLM_BLOCK_SIZE:-16}
+      - --max-num-seqs
+      - ${VLLM_MAX_NUM_SEQS:-8}
+      - --max-num-batched-tokens
+      - ${VLLM_MAX_NUM_BATCHED_TOKENS:-4096}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${VLLM_FALLBACK_GPU_ID:-1}"]
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    ports: ["127.0.0.1:9091:9090"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    volumes:
+      - ./llm-monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./llm-monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    ports: ["127.0.0.1:3001:3000"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in .env}
+    volumes:
+      - ./llm-monitoring/provisioning:/etc/grafana/provisioning:ro
+      - ./llm-monitoring/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+
+volumes:
+  billing-data:
+  huggingface-cache:
+  prometheus-data:
+  grafana-data:

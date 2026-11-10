@@ -1,0 +1,45 @@
+name: LLM Gateway
+on:
+  push:
+    paths:
+      - 'apps/llm-gateway/**'
+      - 'modules/llm-routing/**'
+      - 'modules/token-billing/**'
+      - 'supports/llm-monitoring/**'
+      - 'docker/llm-*/**'
+      - 'docker/llm-compose.yml'
+      - '.env.llm.example'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/llm-gateway.yml'
+  pull_request:
+    paths:
+      - 'apps/llm-gateway/**'
+      - 'modules/llm-routing/**'
+      - 'modules/token-billing/**'
+      - 'supports/llm-monitoring/**'
+      - 'docker/llm-*/**'
+      - 'docker/llm-compose.yml'
+      - '.env.llm.example'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/llm-gateway.yml'
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.11.15'
+      - run: uv sync --frozen --all-packages
+      - run: uv run --no-sync ruff check .
+      - run: uv run --no-sync ruff format --check .
+      - run: uv run --no-sync pytest -q -W error
+      - run: uv build --all-packages
+      - run: docker compose --env-file .env.llm.example -f docker/llm-compose.yml --profile gpu --profile gpu-fallback config --quiet
+        env:
+          LLM_ENV_FILE: ../.env.llm.example

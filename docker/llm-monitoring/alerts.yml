@@ -1,0 +1,49 @@
+groups:
+  - name: llm-serving
+    rules:
+      - alert: LLMPrimaryDown
+        expr: up{job="vllm-primary"} == 0
+        for: 30s
+        labels: {severity: warning}
+        annotations:
+          summary: "Primary model server is unavailable"
+      - alert: LLMGatewayDown
+        expr: up{job="llm-gateway"} == 0
+        for: 30s
+        labels: {severity: critical}
+        annotations:
+          summary: "Gateway scrape failed"
+      - alert: LLMQueueOverloaded
+        expr: sum(rate(llm_gateway_requests_total{outcome=~"queue_full|queue_timeout"}[1m])) > 0
+        for: 15s
+        labels: {severity: warning}
+        annotations:
+          summary: "Requests are being rejected by gateway admission control"
+      - alert: LLMBudgetRejected
+        expr: sum(increase(llm_gateway_requests_total{outcome="budget_exceeded"}[5m])) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "A request exceeded its account or global budget"
+      - alert: LLMBudgetDowngraded
+        expr: sum(increase(llm_gateway_fallbacks_total{reason="budget"}[5m])) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "Budget limits routed requests to a free model"
+      - alert: LLMEngineQueueHigh
+        expr: vllm:num_requests_waiting > 10
+        for: 30s
+        labels: {severity: warning}
+        annotations:
+          summary: "vLLM engine requests are accumulating"
+      - alert: LLMKVCacheHigh
+        expr: vllm:kv_cache_usage_perc > 0.9
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "vLLM KV cache utilization exceeds 90 percent"
+      - alert: LLMBudgetNearlySpent
+        expr: llm_gateway_budget_available_micro_usd / clamp_min(llm_gateway_budget_available_micro_usd + llm_gateway_budget_committed_micro_usd, 1) < 0.1
+        for: 30s
+        labels: {severity: warning}
+        annotations:
+          summary: "Less than 10 percent of global budget remains"

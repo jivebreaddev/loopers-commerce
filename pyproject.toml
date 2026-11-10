@@ -1,0 +1,29 @@
+[project]
+name = "loopers-llm-serving"
+version = "0.1.0"
+requires-python = ">=3.11,<3.15"
+dependencies = ["llm-gateway"]
+
+[dependency-groups]
+dev = ["pytest>=8.3,<10", "pytest-asyncio>=0.24,<2", "ruff>=0.11,<1"]
+
+[tool.uv.workspace]
+members = ["apps/llm-gateway", "modules/llm-routing", "modules/token-billing", "supports/llm-monitoring"]
+
+[tool.uv.sources]
+llm-gateway = { workspace = true }
+llm-routing = { workspace = true }
+token-billing = { workspace = true }
+llm-monitoring = { workspace = true }
+
+[tool.pytest.ini_options]
+testpaths = ["apps/llm-gateway/tests", "modules/llm-routing/tests", "modules/token-billing/tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
